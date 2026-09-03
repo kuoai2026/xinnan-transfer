@@ -1,0 +1,6 @@
+{
+  "endpoint": "<Apps Script Web App /exec 網址>",
+  "token": "<與 Code.gs 一致的隨機字串>",
+  "persons": ["小賴", "瓊如", "柔柔", "阿霞"],
+  "repo_dir": "~/repos/xinnan-transfer"
+}
