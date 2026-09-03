@@ -142,8 +142,16 @@
     display:flex;justify-content:space-between;align-items:center;font-weight:700}
   .dlg-h button{color:var(--dim);font-size:22px}
   .dlg-b{padding:14px 16px;overflow-y:auto}
-  .rvitem{padding:9px 0;border-bottom:1px solid var(--bg2);font-size:14px;display:flex;gap:8px}
-  .rvitem .x{flex:1}
+  .rvitem{padding:10px 0;border-bottom:1px solid var(--bg2);font-size:14px;display:flex;gap:8px;align-items:center}
+  .rvitem .x{flex:1;min-width:0}
+  .stepper.sm{height:32px}
+  .stepper.sm button{width:30px;height:30px;font-size:16px}
+  .stepper.sm .qn{min-width:30px;text-align:center;font-size:14px;font-weight:700;
+    padding:0 2px;border-left:1px solid var(--line);border-right:1px solid var(--line);
+    align-self:stretch;display:flex;align-items:center;justify-content:center}
+  .rvdel{width:34px;height:34px;border-radius:9px;background:var(--danger-bg);color:#fecaca;
+    font-size:15px;flex-shrink:0}
+  .rvdel:active{opacity:.7}
   .rvitem .badge{font-size:11px;color:var(--warn);border:1px solid var(--warn);border-radius:6px;
     padding:0 5px;align-self:flex-start;margin-top:2px}
   .rvitem .n{color:var(--dim);font-size:12px;margin-top:2px}
@@ -216,7 +224,7 @@
 </div>
 
 <dialog id="review">
-  <div class="dlg-h"><span>確認調貨清單</span><button id="closeReview" aria-label="關閉">✕</button></div>
+  <div class="dlg-h"><span>確認調貨清單（<span id="rvCount">0</span> 項）</span><button id="closeReview" aria-label="關閉">✕</button></div>
   <div class="dlg-b">
     <div id="rvList"></div>
     <div class="lbl" style="margin-top:16px">整張單備註（箱子大小、帳單要回、指定效期…）</div>
@@ -548,12 +556,12 @@ function cartLines(){
   for(const [sku,c] of Object.entries(state.cart))
     lines.push({sku, name:c.name, brand:c.brand||'', line:c.line||c.series||'',
       qty:c.qty, custom:c.custom, note:c.note, avail:c.avail, manual:false});
-  for(const m of state.manual){
+  state.manual.forEach((m,mi)=>{
     const q = parseInt(m.qty,10);
     if(m.name.trim() && q>0)
-      lines.push({sku:'', name:m.name.trim(), brand:'', line:'', qty:q, custom:m.custom,
+      lines.push({sku:'', mi, name:m.name.trim(), brand:'', line:'', qty:q, custom:m.custom,
         note:m.note, unit:m.unit.trim(), manual:true});
-  }
+  });
   return lines;
 }
 function updateCart(){
@@ -569,17 +577,55 @@ function personName(){
 
 /* review dialog */
 const dlg = $('#review');
-$('#openReview').onclick=()=>{
+function rvStep(l, d){
+  if(l.manual){
+    const m = state.manual[l.mi]; if(!m) return;
+    const q = Math.max(1, (parseInt(m.qty,10)||0) + d);
+    m.qty = String(q);
+  } else {
+    const c = state.cart[l.sku]; if(!c) return;
+    const q = c.qty + d;
+    if(q <= 0) delete state.cart[l.sku]; else c.qty = q;
+  }
+  save(); renderManual(); doSearch(); updateCart();
+  if(!cartLines().length){ dlg.close(); toast('清單已清空'); return; }
+  renderReview();
+}
+function rvDelete(l){
+  if(l.manual){
+    state.manual.splice(l.mi, 1);
+    if(!state.manual.length) state.manual = [blankManual()];
+  } else {
+    delete state.cart[l.sku];
+  }
+  save(); renderManual(); doSearch(); updateCart();
+  if(!cartLines().length){ dlg.close(); toast('清單已清空'); return; }
+  renderReview();
+}
+function renderReview(){
   const lines = cartLines();
-  $('#rvList').innerHTML = lines.map(l=>`
-    <div class="rvitem">
+  $('#rvCount').textContent = lines.length;
+  $('#rvList').innerHTML = lines.map((l,i)=>`
+    <div class="rvitem" data-i="${i}">
       <div class="x">
         <div>${l.line?`<span class="n2">${esc(l.line)}</span> `:''}<b>${esc(l.name)}</b> ${l.manual?'<span class="badge">系統沒有</span>':''} ${l.custom?'<span class="badge">客訂</span>':''}</div>
         ${l.note?`<div class="n">備註：${esc(l.note)}</div>`:''}
         ${!l.manual?`<div class="n">${esc(l.sku)}　可售 ${l.avail}</div>`:(l.unit?`<div class="n">單位：${esc(l.unit)}</div>`:'')}
       </div>
-      <div class="qq">×${l.qty}</div>
+      <div class="stepper sm">
+        <button data-rm>−</button><span class="qn">${l.qty}</span><button data-rp>＋</button>
+      </div>
+      <button class="rvdel" data-del aria-label="刪除">🗑</button>
     </div>`).join('');
+  $('#rvList').querySelectorAll('.rvitem').forEach(el=>{
+    const l = lines[+el.dataset.i];
+    el.querySelector('[data-rm]').onclick=()=>rvStep(l,-1);
+    el.querySelector('[data-rp]').onclick=()=>rvStep(l, 1);
+    el.querySelector('[data-del]').onclick=()=>rvDelete(l);
+  });
+}
+$('#openReview').onclick=()=>{
+  renderReview();
   $('#ordNote').value = state.ordNote||'';
   dlg.showModal();
 };
