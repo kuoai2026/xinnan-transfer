@@ -49,21 +49,35 @@
   #qclear.show{display:block}
   .hint{font-size:12px;color:var(--dimmer);margin-top:6px}
 
+  .brand{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+    margin-bottom:12px;overflow:hidden}
+  .brand>.bh{display:flex;align-items:center;gap:9px;padding:13px 14px;width:100%;text-align:left}
+  .brand>.bh .bn{font-size:16px;font-weight:800}
+  .brand>.bh .bcat{font-size:11px;color:var(--dimmer)}
+  .brand>.bh .bcnt{flex:1;text-align:right;font-size:12px;color:var(--dim);white-space:nowrap}
+  .brand>.bh .caret{color:var(--dim);transition:.15s;font-size:13px}
+  .brand.open>.bh .caret{transform:rotate(90deg)}
+  .brand>.blines{display:none;padding:0 8px 8px}
+  .brand.open>.blines{display:block}
+
   .series{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
     margin-bottom:10px;overflow:hidden}
-  .series>.sh{display:flex;align-items:center;gap:10px;padding:12px 13px;width:100%;text-align:left}
+  .series.nested{background:var(--bg);border-color:var(--bg2);margin-bottom:7px}
+  .series>.sh{display:flex;align-items:center;gap:10px;padding:11px 13px;width:100%;text-align:left}
   .series>.sh .name{flex:1;font-size:14px;font-weight:600;line-height:1.35}
+  .series.nested>.sh .name{font-size:13px;font-weight:600}
   .series>.sh .cat{font-size:11px;color:var(--dimmer)}
   .series>.sh .cnt{font-size:12px;color:var(--dim);white-space:nowrap}
   .series>.sh .caret{color:var(--dim);transition:.15s;font-size:13px}
   .series.open>.sh .caret{transform:rotate(90deg)}
-  .quickfill{display:flex;gap:6px;padding:0 13px 10px;flex-wrap:wrap}
+  .quickfill{display:flex;gap:6px;padding:0 13px 9px;flex-wrap:wrap}
   .quickfill span{font-size:12px;color:var(--dimmer);align-self:center}
   .quickfill button{padding:5px 12px;border-radius:8px;background:var(--card2);
     border:1px solid var(--line);font-size:13px;color:var(--dim)}
+  .series.nested .quickfill button{background:var(--card)}
 
-  .items{border-top:1px solid var(--line);display:none}
-  .series.open .items{display:block}
+  .items{border-top:1px solid var(--line);display:block}
+  .rvitem .n2{font-size:12px;color:var(--dim)}
   .row{display:flex;align-items:center;gap:10px;padding:10px 13px;border-bottom:1px solid var(--bg2)}
   .row:last-child{border-bottom:none}
   .row .info{flex:1;min-width:0}
@@ -239,18 +253,42 @@ if(!state.manual.length) state.manual = [blankManual()];
 function blankManual(){ return {name:'',qty:'',unit:'',custom:false,note:''}; }
 function save(){ try{ localStorage.setItem(LS, JSON.stringify(state)); }catch(e){} }
 
-/* ---------- build index for search ---------- */
-const ITEMS = [];              // flat list {sku,name,series,cat,avail,blob}
-const BY_SERIES = new Map();   // series -> {name,cat,items:[],extra}
+/* ---------- build index for search ----------
+   catalog 兩種節點：
+     {t:"brand",  n:品牌, c:分類, lines:[{n:子系列名, i:[{s,g,v}]}]}
+     {t:"series", n:系列名, c:分類, i:[{s,g,v}], x:別名}
+   統一攤平成 GROUPS（一個子系列 or 一個系列 = 一個 group），品牌只是顯示分層。 */
+const ITEMS = [];             // {sku,name,brand,line,cat,avail,gk,vg,blob}
+const GROUPS = new Map();     // gk -> {kind,brand,name,cat,items:[],extra}
+const BRANDS = new Map();     // 品牌 -> {cat, gks:[]}
+const SEP0 = '␟';
 for(const s of CATALOG){
-  const grp = {name:s.n, disp:s.d||s.n, cat:s.c||'', items:[],
-    extra:(s.n+' '+(s.x||'')).toLowerCase()};
-  BY_SERIES.set(s.n, grp);
-  for(const it of s.i){
-    const obj = {sku:it.s, name:it.g, series:s.n, cat:s.c||'', avail:it.v,
-      vg:(it.g+' '+it.s).toLowerCase(),
-      blob:(s.n+' '+it.g+' '+it.s).toLowerCase()};
-    grp.items.push(obj); ITEMS.push(obj);
+  if(s.t === 'brand'){
+    const bk = s.n;
+    BRANDS.set(bk, {cat:s.c||'', gks:[]});
+    for(const ln of s.lines){
+      const gk = bk + SEP0 + ln.n;
+      const grp = {kind:'line', brand:bk, name:ln.n, cat:s.c||'', items:[],
+        extra:(bk+' '+ln.n).toLowerCase()};
+      GROUPS.set(gk, grp); BRANDS.get(bk).gks.push(gk);
+      for(const it of ln.i){
+        const o = {sku:it.s, name:it.g, brand:bk, line:ln.n, cat:s.c||'', avail:it.v, gk,
+          vg:(it.g+' '+it.s).toLowerCase(),
+          blob:(bk+' '+ln.n+' '+it.g+' '+it.s).toLowerCase()};
+        grp.items.push(o); ITEMS.push(o);
+      }
+    }
+  } else {
+    const gk = 'S' + SEP0 + s.n;
+    const grp = {kind:'series', brand:'', name:s.n, cat:s.c||'', items:[],
+      extra:(s.n+' '+(s.x||'')).toLowerCase()};
+    GROUPS.set(gk, grp);
+    for(const it of s.i){
+      const o = {sku:it.s, name:it.g, brand:'', line:s.n, cat:s.c||'', avail:it.v, gk,
+        vg:(it.g+' '+it.s).toLowerCase(),
+        blob:(s.n+' '+it.g+' '+it.s).toLowerCase()};
+      grp.items.push(o); ITEMS.push(o);
+    }
   }
 }
 
@@ -284,31 +322,30 @@ function renderPersons(){
 $('#otherName').addEventListener('input',e=>{ state.otherName=e.target.value; save(); updateCart(); });
 
 /* search */
-let openSeries = new Set();
+let openGroup = new Set();   // 展開「全部變體」的子系列 gk
+let openBrand = new Set();   // 收合的品牌（預設展開）
 
 function computeHits(toks){
-  const hit = new Map();
-  // Pass A：品項層級 —— 每個 token 直接出現在該品項字串
+  const hit = new Map();     // gk -> matched items
   for(const it of ITEMS){
     if(toks.every(t=>it.blob.includes(t))){
-      if(!hit.has(it.series)) hit.set(it.series, []);
-      hit.get(it.series).push(it);
+      if(!hit.has(it.gk)) hit.set(it.gk, []);
+      hit.get(it.gk).push(it);
     }
   }
-  // 精修：token 若能在同系列某些品項的「規格名」裡找到，就只留規格名含該 token 的品項
-  //（系統商品名常把整排顏色/角色當 SEO 關鍵字塞進去，會誤中兄弟品項）
-  for(const [sn, arr] of hit){
+  // 精修：token 若能在同組某些品項的規格名裡找到，就只留規格名含該 token 的
+  for(const [gk, arr] of hit){
     let cand = arr;
     for(const t of toks){
       const strong = cand.filter(it=>it.vg.includes(t));
       if(strong.length && strong.length < cand.length) cand = strong;
     }
-    hit.set(sn, cand);
+    hit.set(gk, cand);
   }
-  // Pass B：系列層級 fallback —— token 全命中系列名/別名，且 Pass A 沒抓到 → 帶出整個系列
-  for(const [sn, grp] of BY_SERIES){
-    if(hit.has(sn)) continue;
-    if(toks.every(t=>grp.extra.includes(t))) hit.set(sn, grp.items.slice());
+  // Pass B：組層級 fallback（token 全命中子系列名/別名，Pass A 沒抓到）→ 帶出整組
+  for(const [gk, grp] of GROUPS){
+    if(hit.has(gk)) continue;
+    if(toks.every(t=>grp.extra.includes(t))) hit.set(gk, grp.items.slice());
   }
   return hit;
 }
@@ -325,48 +362,81 @@ function segmentations(t){
   })(0, []);
   return res.sort((a,b)=>a.length-b.length).slice(0, 250);
 }
+let lastHits = new Map();
 function doSearch(){
   const raw = $('#q').value.trim().toLowerCase();
   $('#qclear').classList.toggle('show', !!$('#q').value);
   const box = $('#results');
-  if(raw.length < 1){ box.innerHTML = '<div class="empty">輸入關鍵字開始搜尋<br>已收錄 '+ITEMS.length+' 項商品</div>'; return; }
-  // 中文與英數字交界處自動補空格（例：安心罩護m黑 → 安心罩護 m 黑）
+  if(raw.length < 1){ box.innerHTML = '<div class="empty">輸入關鍵字開始搜尋<br>例：<b>郡昱成人平面</b>、<b>興安 大耳狗</b>、<b>中衛一級</b><br>已收錄 '+ITEMS.length+' 項商品</div>'; lastHits=new Map(); return; }
   const spaced = raw.replace(/([一-鿿])([a-z0-9])/g,'$1 $2').replace(/([a-z0-9])([一-鿿])/g,'$1 $2');
   const toks = spaced.split(/[\s,、\/]+/).filter(Boolean);
-  let hitSeries = computeHits(toks);
-  // 搜不到 → 把關鍵字併起來自動斷詞再試
-  if(!hitSeries.size){
+  let hits = computeHits(toks);
+  if(!hits.size){
     const joined = toks.join('');
     if(joined.length >= 4 && joined.length <= 12){
       for(const seg of segmentations(joined)){
         const h = computeHits(seg);
-        if(h.size){ hitSeries = h; break; }
+        if(h.size){ hits = h; break; }
       }
     }
   }
-  if(!hitSeries.size){ box.innerHTML = '<div class="empty">找不到「'+esc(raw)+'」<br>請改用空格分隔關鍵字，或用下面「系統沒有的商品」填寫</div>'; return; }
-  const seriesArr = [...hitSeries.entries()].slice(0,40);
-  box.innerHTML = seriesArr.map(([sn,its])=>seriesCard(sn,its,its.length)).join('');
+  lastHits = hits;
+  if(!hits.size){ box.innerHTML = '<div class="empty">找不到「'+esc(raw)+'」<br>請改用空格分隔關鍵字，或用下面「系統沒有的商品」填寫</div>'; return; }
+  box.innerHTML = renderHits(hits);
   bindResults();
 }
-function seriesCard(sn, its, n){
-  const grp = BY_SERIES.get(sn);
+function renderHits(hits){
+  // 依品牌分桶
+  const bybrand = new Map();   // 品牌 -> [[gk,items]...]  ；系列(無品牌) 放 key ''
+  for(const [gk, its] of hits){
+    const b = GROUPS.get(gk).brand;
+    if(!bybrand.has(b)) bybrand.set(b, []);
+    bybrand.get(b).push([gk, its]);
+  }
+  const order = [...bybrand.keys()].sort((a,b)=>{
+    if(!a) return 1; if(!b) return -1;
+    return bybrand.get(b).reduce((s,x)=>s+x[1].length,0) - bybrand.get(a).reduce((s,x)=>s+x[1].length,0);
+  });
+  let html = '';
+  for(const b of order.slice(0,25)){
+    const groups = bybrand.get(b);
+    if(!b){ html += groups.map(([gk,its])=>groupCard(gk,its)).join(''); continue; }
+    const total = groups.reduce((s,x)=>s+x[1].length,0);
+    const collapsed = openBrand.has(b);
+    html += `<div class="brand${collapsed?'':' open'}" data-b="${esc(b)}">
+      <button class="bh" data-btoggle>
+        <span class="bn">${esc(b)}</span>
+        <span class="bcat">${esc(GROUPS.get(groups[0][0]).cat)}</span>
+        <span class="bcnt">${groups.length} 系列 · ${total} 項</span>
+        <span class="caret">▶</span>
+      </button>
+      <div class="blines">${groups.map(([gk,its])=>groupCard(gk,its,true)).join('')}</div>
+    </div>`;
+  }
+  return html;
+}
+function groupCard(gk, its, nested){
+  const grp = GROUPS.get(gk);
   const full = grp.items.length;
-  const open = openSeries.has(sn);
-  const showItems = open ? grp.items : its;
-  return `<div class="series${open?' open':''}" data-s="${esc(sn)}">
+  const open = openGroup.has(gk);
+  // 「整組都命中」＝關鍵字太籠統（例：只打「郡昱」），先收起來只給標題
+  const generic = its.length === full && full > 8 && !open;
+  const show = open ? grp.items : its;
+  const disp = nested && grp.brand && grp.name.startsWith(grp.brand)
+    ? (grp.name.slice(grp.brand.length).trim() || grp.name) : grp.name;
+  return `<div class="series${open?' open':''}${nested?' nested':''}${generic?' folded':''}" data-g="${esc(gk)}">
     <button class="sh" data-toggle>
-      <span class="name">${esc(grp.disp)}<div class="cat">${esc(grp.cat)}</div></span>
-      <span class="cnt">${open?full:n} 項</span>
+      <span class="name">${esc(disp)}${!nested?`<div class="cat">${esc(grp.cat)}</div>`:''}</span>
+      <span class="cnt">${full} 色</span>
       <span class="caret">▶</span>
     </button>
-    <div class="quickfill">
+    ${generic ? '' : `<div class="quickfill">
       <span>整排填</span>
       <button data-qf="1">1</button><button data-qf="2">2</button><button data-qf="3">3</button>
       <button data-qf="0">清除</button>
-      ${(!open && full>its.length)?`<button data-showall style="margin-left:auto">顯示全部 ${full} 項</button>`:''}
+      ${(!open && full>its.length)?`<button data-showall style="margin-left:auto">全部 ${full} 色</button>`:''}
     </div>
-    <div class="items">${showItems.map(itemRow).join('')}</div>
+    <div class="items">${show.map(itemRow).join('')}</div>`}
   </div>`;
 }
 function itemRow(it){
@@ -393,20 +463,25 @@ function itemRow(it){
   </div>`;
 }
 function bindResults(){
+  document.querySelectorAll('#results .brand > .bh').forEach(bh=>{
+    bh.onclick=()=>{ const b=bh.parentElement.dataset.b;
+      if(openBrand.has(b)) openBrand.delete(b); else openBrand.add(b);
+      doSearch(); };
+  });
   document.querySelectorAll('#results .series').forEach(el=>{
-    const sn = el.dataset.s;
+    const gk = el.dataset.g;
     el.querySelector('[data-toggle]').onclick=()=>{
-      if(openSeries.has(sn)) openSeries.delete(sn); else openSeries.add(sn);
+      if(openGroup.has(gk)) openGroup.delete(gk); else openGroup.add(gk);
       doSearch();
     };
     const sa = el.querySelector('[data-showall]');
-    if(sa) sa.onclick=(e)=>{ e.stopPropagation(); openSeries.add(sn); doSearch(); };
+    if(sa) sa.onclick=(e)=>{ e.stopPropagation(); openGroup.add(gk); doSearch(); };
     el.querySelectorAll('[data-qf]').forEach(b=>b.onclick=(e)=>{
       e.stopPropagation();
       const v = +b.dataset.qf;
-      const grp = BY_SERIES.get(sn);
-      const visible = openSeries.has(sn) ? grp.items
-        : [...el.querySelectorAll('.row')].map(r=>ITEMS.find(i=>i.sku===r.dataset.sku));
+      const grp = GROUPS.get(gk);
+      const visible = openGroup.has(gk) ? grp.items
+        : (lastHits.get(gk) || []);
       visible.forEach(it=>setQty(it, v, {silent:true}));
       doSearch(); updateCart();
     });
@@ -430,7 +505,7 @@ function setQty(it, q, opt){
   if(q>0){
     const prev = state.cart[it.sku]||{};
     state.cart[it.sku] = {qty:q, custom:!!prev.custom, note:prev.note||'',
-      name:it.name, series:it.series, avail:it.avail};
+      name:it.name, brand:it.brand||'', line:it.line||'', avail:it.avail};
   } else {
     delete state.cart[it.sku];
   }
@@ -471,12 +546,12 @@ $('#addManual').onclick=()=>{ state.manual.push(blankManual()); save(); renderMa
 function cartLines(){
   const lines = [];
   for(const [sku,c] of Object.entries(state.cart))
-    lines.push({sku, name:c.name, series:c.series, qty:c.qty, custom:c.custom,
-      note:c.note, avail:c.avail, manual:false});
+    lines.push({sku, name:c.name, brand:c.brand||'', line:c.line||c.series||'',
+      qty:c.qty, custom:c.custom, note:c.note, avail:c.avail, manual:false});
   for(const m of state.manual){
     const q = parseInt(m.qty,10);
     if(m.name.trim() && q>0)
-      lines.push({sku:'', name:m.name.trim(), series:'', qty:q, custom:m.custom,
+      lines.push({sku:'', name:m.name.trim(), brand:'', line:'', qty:q, custom:m.custom,
         note:m.note, unit:m.unit.trim(), manual:true});
   }
   return lines;
@@ -499,8 +574,7 @@ $('#openReview').onclick=()=>{
   $('#rvList').innerHTML = lines.map(l=>`
     <div class="rvitem">
       <div class="x">
-        <div>${esc(l.name)} ${l.manual?'<span class="badge">系統沒有</span>':''} ${l.custom?'<span class="badge">客訂</span>':''}</div>
-        ${l.series&&l.series!==l.name?`<div class="n">${esc(l.series)}</div>`:''}
+        <div>${l.line?`<span class="n2">${esc(l.line)}</span> `:''}<b>${esc(l.name)}</b> ${l.manual?'<span class="badge">系統沒有</span>':''} ${l.custom?'<span class="badge">客訂</span>':''}</div>
         ${l.note?`<div class="n">備註：${esc(l.note)}</div>`:''}
         ${!l.manual?`<div class="n">${esc(l.sku)}　可售 ${l.avail}</div>`:(l.unit?`<div class="n">單位：${esc(l.unit)}</div>`:'')}
       </div>
@@ -513,30 +587,15 @@ $('#closeReview').onclick=()=>dlg.close();
 $('#ordNote').oninput=e=>{ state.ordNote=e.target.value; save(); };
 
 /* submit */
-function summaryKey(l){
-  const m = l.name.split(/[∣｜|]/);
-  if(m.length > 1) return m[0].trim();
-  let s = (l.series || l.name).replace(/【[^】]*】/g,'').replace(/\[[^\]]*\]/g,'')
-    .replace(/（[^）]*）/g,'').trim();
-  return (s.split(/[ 　／/,、]/)[0] || l.name).slice(0,18);
-}
-function summaryVariant(l, key){
-  let n = l.name;
-  const m = n.split(/[∣｜|]/);
-  if(m.length > 1) n = m.slice(1).join(' ').trim();
-  else if(key && n.startsWith(key)) n = n.slice(key.length).trim();
-  return n;
-}
 function buildSummary(lines){
-  const groups = new Map();
+  const groups = new Map();   // 子系列名 -> [變體 數量]
   const solo = [];
   for(const l of lines){
     const tag = (l.custom?'(客訂)':'') + (l.note?'['+l.note+']':'');
     if(l.manual){ solo.push('【手填】'+l.name+' '+l.qty+(l.unit||'')+tag); continue; }
-    const key = summaryKey(l);
-    const v = summaryVariant(l, key);
+    const key = l.line || l.name;
     if(!groups.has(key)) groups.set(key, []);
-    groups.get(key).push((v?v+' ':'')+l.qty+tag);
+    groups.get(key).push(l.name+' '+l.qty+tag);
   }
   const parts = [...groups.entries()].map(([k,v])=>k+'：'+v.join('、'));
   return parts.concat(solo).join('\n');
@@ -553,7 +612,8 @@ $('#submitBtn').onclick=async ()=>{
     token: CONFIG.token, clientId: CID, person,
     ordNote: state.ordNote||'',
     summary: buildSummary(lines),
-    items: lines.filter(l=>!l.manual).map(l=>({sku:l.sku,name:l.name,series:l.series,
+    items: lines.filter(l=>!l.manual).map(l=>({sku:l.sku,name:l.name,
+      series:(l.line?l.line+' '+l.name:l.name),
       qty:l.qty,custom:l.custom,note:l.note||''})),
     manualItems: lines.filter(l=>l.manual).map(l=>({name:l.name,qty:l.qty,unit:l.unit||'',
       custom:l.custom,note:l.note||''}))
