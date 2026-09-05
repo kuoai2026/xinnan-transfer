@@ -189,7 +189,7 @@ def load_brand_map():
 
 # ---------- 口罩：品牌 ----------
 def mask_brand(sku, texts, bmap):
-    code = sku[:5]
+    code = sku[:4]  # "B"+3碼公司碼；第4碼是款式碼(1平面/2立體)，不分品牌
     b = bmap["codes"].get(code)
     if b and _clean_brand_ok(b):
         return b
