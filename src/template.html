@@ -273,16 +273,19 @@ const SEP0 = '␟';
 for(const s of CATALOG){
   if(s.t === 'brand'){
     const bk = s.n;
+    // x：這個品牌底下曾出現過的其他品牌字樣（如「安心罩護」是「昌明」的別名）。
+    // 顯示文字已經清掉這些字樣了，但要留在搜尋用的字串裡，不然打別名搜不到。
+    const bx = (s.x || '').toLowerCase();
     BRANDS.set(bk, {cat:s.c||'', gks:[]});
     for(const ln of s.lines){
       const gk = bk + SEP0 + ln.n;
       const grp = {kind:'line', brand:bk, name:ln.n, cat:s.c||'', items:[],
-        extra:(bk+' '+ln.n).toLowerCase()};
+        extra:(bk+' '+bx+' '+ln.n).toLowerCase()};
       GROUPS.set(gk, grp); BRANDS.get(bk).gks.push(gk);
       for(const it of ln.i){
         const o = {sku:it.s, name:it.g, brand:bk, line:ln.n, cat:s.c||'', avail:it.v, gk,
           vg:(it.g+' '+it.s).toLowerCase(),
-          blob:(bk+' '+ln.n+' '+it.g+' '+it.s).toLowerCase()};
+          blob:(bk+' '+bx+' '+ln.n+' '+it.g+' '+it.s).toLowerCase()};
         grp.items.push(o); ITEMS.push(o);
       }
     }

@@ -87,6 +87,9 @@ _VBRACKET = re.compile(r"[﹝﹞【】\[\]（）()]")
 
 def strip_vjunk(s):
     s = _VBRACKET.sub(" ", s)
+    # 兩次：像「5款共50入」這種，第一輪把「5」「共50入」清掉後「款」才會跟前後字斷開
+    # （沒斷開時「款」的鄰接字元檢查會被相鄰雜訊卡住，鎖住不敢清），第二輪才清得掉。
+    s = _VJUNK.sub(" ", s)
     s = _VJUNK.sub(" ", s)
     s = re.sub(r"[★☆⭐:：,\.、。/／\-－—_~♡❤｜|∣＊*]+", " ", s)
     s = re.sub(r"\s+", " ", s).strip()
@@ -181,10 +184,11 @@ def load_aliases():
 def load_brand_map():
     if not os.path.exists(BRAND_MAP):
         log("警告：找不到 brand_map.json")
-        return {"codes": {}, "keywords": []}
+        return {"codes": {}, "aliases": {}, "keywords": []}
     with open(BRAND_MAP, encoding="utf-8") as f:
         d = json.load(f)
-    return {"codes": d.get("codes", {}), "keywords": d.get("keywords", [])}
+    return {"codes": d.get("codes", {}), "aliases": d.get("aliases", {}),
+            "keywords": d.get("keywords", [])}
 
 
 # ---------- 口罩：品牌 ----------
@@ -218,24 +222,49 @@ def _pick_kw(texts, kws, norm_map):
     return max(ct, key=lambda k: ct[k])
 
 
-def role_of(g1):
-    head = _SEPRE.split(g1, 1)[0]
-    head = re.split(r"[(（]", head, 1)[0].strip().lower()
+_KT_RE = re.compile(r"(?<![a-z])kt(?![a-z])", re.I)  # KT 是 Kitty 縮寫，要卡邊界避免亂中
+
+
+def role_of(text):
+    # 全字串找，不要只看第一段——蝦皮品名常用「-」當分隔符（水舞-成人/酷洛米一代-紫色），
+    # 而 "-" 不在 _SEPRE 的分隔符清單裡，只看「第一個分隔符前」會漏掉角色字樣，
+    # 之後清雜訊時就清不掉，殘留在變體名裡。
+    t = (text or "").lower()
     for r in ROLE_KW:
-        if r.lower() in head:
+        if r.lower() in t:
             return "KT" if r.lower() in ("kitty", "hello kitty", "凱蒂貓") else r
+    if _KT_RE.search(t):
+        return "KT"
     return ""
 
 
-def variant_name(g1, brand, role, alias_name, sku):
-    v = g1
-    for d in (brand, role):
+_KT_SPELLINGS = ["hello kitty", "kitty", "凱蒂貓"]
+
+
+def _clean_one(text, strip_names, role):
+    v = text or ""
+    strip_words = list(strip_names)
+    # role="KT" 是正規化後的顯示名，實際文字可能寫 kitty/hello kitty/凱蒂貓/KT 四種拼法，
+    # 清雜訊要把「原始寫法」都清掉，清「KT」這個字面反而清不到任何東西
+    if role == "KT":
+        strip_words += _KT_SPELLINGS
+        v = _KT_RE.sub(" ", v)
+    elif role:
+        strip_words.append(role)
+    for d in strip_words:
         if d:
             v = re.sub(re.escape(d), " ", v, flags=re.I)
-    v = strip_vjunk(v)
-    if not v and alias_name:
-        seg = _SEPRE.split(alias_name)[-1]
-        v = strip_vjunk(re.sub(re.escape(brand), " ", seg))
+    return strip_vjunk(v)
+
+
+def variant_name(g1, strip_names, role, alias_name, sku):
+    # 2026-09-05 使用者指定：品名以蝦皮獲利計算表(alias_name)為主，網翼規格一(g1)只當
+    # alias 沒資料時的備援。strip_names = [品牌] + 同公司碼底下所有出現過的其他品牌字樣
+    # （例：B009 公司碼底下蝦皮品名有時寫「昌明」有時寫「安心罩護」，都要清掉，
+    #  不然沒被選中當品牌的那個名字會變成殘留在變體名裡的雜訊）。
+    v = _clean_one(alias_name, strip_names, role)
+    if not v:
+        v = _clean_one(g1, strip_names, role)
     return (v[:18] or sku)
 
 
@@ -251,6 +280,7 @@ _COUNT_RE = re.compile(r"([0-9０-９]+)\s*入")
 # ---------- 口罩：組三層（品牌 > 對象+款式+角色 > 顏色）----------
 def build_mask_tree(rows, alias, bmap):
     brands = {}   # brand -> { linekey -> {parts, items} }
+    brand_aliases = {}   # brand -> set(同公司碼底下出現過的其他品牌字樣，供搜尋用)
     for sku, sysname, g1, g2, avail in rows:
         al = alias.get(sku, "")
         brand = mask_brand(sku, [g1, sysname, al], bmap)
@@ -274,8 +304,10 @@ def build_mask_tree(rows, alias, bmap):
             style = ds + style
         role = role_of(g1) or role_of(al)
         lk = (brand, target, style, role)
+        strip_names = bmap["aliases"].get(sku[:4], [brand])
+        brand_aliases.setdefault(brand, set()).update(strip_names)
         d = brands.setdefault(brand, {}).setdefault(lk, {"items": []})
-        d["items"].append((sku, sysname, g1, g2, avail, al))
+        d["items"].append((sku, sysname, g1, g2, avail, al, strip_names))
 
     out = []
     for brand, lines in brands.items():
@@ -295,9 +327,9 @@ def build_mask_tree(rows, alias, bmap):
             # 先算出每個變體的基本名 + 入數（若有），碰撞時優先用入數區分，
             # 而不是直接貼看不懂的貨號尾碼（同色不同入數是真的差異，不該被清掉）
             raw = []
-            for sku, sysname, g1, g2, avail, al in items:
-                v = variant_name(g1, brand, role, al, sku)
-                cm = _COUNT_RE.search(g1 or al or "")
+            for sku, sysname, g1, g2, avail, al, strip_names in items:
+                v = variant_name(g1, strip_names, role, al, sku)
+                cm = _COUNT_RE.search(al or g1 or "")
                 raw.append((sku, v, (cm.group(1) + "入") if cm else "", avail))
             base_ct = {}
             for _, v, _, _ in raw:
@@ -313,7 +345,13 @@ def build_mask_tree(rows, alias, bmap):
             line_objs.append({"n": name, "i": variants})
         line_objs.sort(key=lambda l: (-sum(1 for x in l["i"] if x["v"] > 0), l["n"]))
         cat = category(next(iter(lines.values()))["items"][0][0])
-        out.append({"t": "brand", "n": brand, "c": cat, "lines": line_objs})
+        # x：這個品牌底下曾出現過的其他品牌字樣（如「安心罩護」是「昌明」的別名）。
+        # 顯示文字已經把這些字樣清掉了，但還是要留著給搜尋用，不然打「安心罩護」會搜不到。
+        alias_words = sorted(w for w in brand_aliases.get(brand, ()) if w != brand)
+        entry = {"t": "brand", "n": brand, "c": cat, "lines": line_objs}
+        if alias_words:
+            entry["x"] = " ".join(alias_words)
+        out.append(entry)
     out.sort(key=lambda b: -sum(len(l["i"]) for l in b["lines"]))
     return out
 
