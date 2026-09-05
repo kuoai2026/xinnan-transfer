@@ -244,7 +244,7 @@ def role_of(text):
 _KT_SPELLINGS = ["hello kitty", "kitty", "凱蒂貓"]
 
 
-def variant_name(g1, strip_names, role, alias_name, sku):
+def variant_name(g1, strip_names, alias_name, sku):
     # 2026-09-05 使用者定案：直接用蝦皮獲利計算表品名(alias_name)，網翼規格一只當
     # alias 沒資料時的備援；不要再跑清雜訊/去角色/截斷那一整套——只去掉品牌字樣
     # （strip_names = 品牌 + 同公司碼底下出現過的其他品牌字樣，例：安心罩護是昌明的別名），
@@ -292,8 +292,10 @@ def build_mask_tree(rows, alias, bmap):
             # 這些款式本身不代表平面/立體（呼吸/鈔票/全彩/活性碳/不脫妝都有兩種版型），
             # 規格一沒寫清楚時用貨號碼補上去，例：「呼吸」→「平面呼吸」
             style = ds + style
-        role = role_of(g1) or role_of(al)
-        lk = (brand, target, style, role)
+        # 2026-09-05 使用者定案：子系列只分「對象＋款式」（成人平面/兒童立體…），
+        # 不要再依角色(大耳狗/庫洛米/KT…)細分——角色字樣還是會留在變體文字裡，
+        # 只是不再拿來分卡片，不然像水舞一個品牌會裂成十幾張卡片。
+        lk = (brand, target, style)
         strip_names = bmap["aliases"].get(sku[:4], [brand])
         brand_aliases.setdefault(brand, set()).update(strip_names)
         d = brands.setdefault(brand, {}).setdefault(lk, {"items": []})
@@ -302,11 +304,9 @@ def build_mask_tree(rows, alias, bmap):
     out = []
     for brand, lines in brands.items():
         line_objs = []
-        for (b, target, style, role), d in lines.items():
+        for (b, target, style), d in lines.items():
             items = d["items"]
             parts = [brand]
-            if role:
-                parts.append(role)
             if target and target != "成人":
                 parts.append(target)
             elif target == "成人" and len(lines) > 1:
@@ -318,7 +318,7 @@ def build_mask_tree(rows, alias, bmap):
             # 而不是直接貼看不懂的貨號尾碼（同色不同入數是真的差異，不該被清掉）
             raw = []
             for sku, sysname, g1, g2, avail, al, strip_names in items:
-                v = variant_name(g1, strip_names, role, al, sku)
+                v = variant_name(g1, strip_names, al, sku)
                 cm = _COUNT_RE.search(al or g1 or "")
                 raw.append((sku, v, (cm.group(1) + "入") if cm else "", avail))
             base_ct = {}
