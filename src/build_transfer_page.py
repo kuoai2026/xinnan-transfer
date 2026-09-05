@@ -205,7 +205,10 @@ def mask_brand(sku, texts, bmap):
 
 
 def _clean_brand_ok(b):
-    return bool(b) and not re.search(r"[《》\d]", b) and len(b) <= 6 and b not in ("S", "M", "L")
+    # 長度上限拉到 10：之前設 6 把「MissMix」(7字) 這種合法但較長的品牌名也擋掉了，
+    # 導致 brand_map 裡手動 OVERRIDE 的值被自己的檢查否決，整組貨號退回去用花色名
+    # 誤判成品牌（B0122 系列每個花色各自變成一張獨立品牌卡片）。
+    return bool(b) and not re.search(r"[《》\d]", b) and len(b) <= 10 and b not in ("S", "M", "L")
 
 
 def _pick_kw(texts, kws, norm_map):
@@ -241,31 +244,18 @@ def role_of(text):
 _KT_SPELLINGS = ["hello kitty", "kitty", "凱蒂貓"]
 
 
-def _clean_one(text, strip_names, role):
-    v = text or ""
-    strip_words = list(strip_names)
-    # role="KT" 是正規化後的顯示名，實際文字可能寫 kitty/hello kitty/凱蒂貓/KT 四種拼法，
-    # 清雜訊要把「原始寫法」都清掉，清「KT」這個字面反而清不到任何東西
-    if role == "KT":
-        strip_words += _KT_SPELLINGS
-        v = _KT_RE.sub(" ", v)
-    elif role:
-        strip_words.append(role)
-    for d in strip_words:
+def variant_name(g1, strip_names, role, alias_name, sku):
+    # 2026-09-05 使用者定案：直接用蝦皮獲利計算表品名(alias_name)，網翼規格一只當
+    # alias 沒資料時的備援；不要再跑清雜訊/去角色/截斷那一整套——只去掉品牌字樣
+    # （strip_names = 品牌 + 同公司碼底下出現過的其他品牌字樣，例：安心罩護是昌明的別名），
+    # 因為品牌已經是卡片標題，重複顯示會很亂；其他字（對象/款式/角色/入數…）全部保留、不截斷。
+    v = alias_name or g1 or ""
+    for d in strip_names:
         if d:
             v = re.sub(re.escape(d), " ", v, flags=re.I)
-    return strip_vjunk(v)
-
-
-def variant_name(g1, strip_names, role, alias_name, sku):
-    # 2026-09-05 使用者指定：品名以蝦皮獲利計算表(alias_name)為主，網翼規格一(g1)只當
-    # alias 沒資料時的備援。strip_names = [品牌] + 同公司碼底下所有出現過的其他品牌字樣
-    # （例：B009 公司碼底下蝦皮品名有時寫「昌明」有時寫「安心罩護」，都要清掉，
-    #  不然沒被選中當品牌的那個名字會變成殘留在變體名裡的雜訊）。
-    v = _clean_one(alias_name, strip_names, role)
-    if not v:
-        v = _clean_one(g1, strip_names, role)
-    return (v[:18] or sku)
+    v = re.sub(r"[｜|∣]+", " ", v)
+    v = re.sub(r"\s+", " ", v).strip(" ／/\\-－—_")
+    return v or sku
 
 
 def digit_style(sku):
