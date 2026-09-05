@@ -52,8 +52,12 @@ TARGET_NORM = {"嫩嬰": "嬰幼", "小童": "幼童", "XL加大": "加大", "�
 STYLE_KW = ["一級薄", "一級厚", "二級薄", "二級厚", "一級", "二級",
             "全彩", "滿版", "活性碳", "不脫妝", "泡泡紋", "呼吸", "蝶形", "蝶型",
             "魚口", "KF94", "KN95", "N95", "鈔票", "4D", "3D", "立體", "平面"]
-STYLE_NORM = {"蝶型": "蝶形", "3D": "立體", "4D": "立體",
-              "一級厚": "一級", "二級厚": "二級"}
+STYLE_NORM = {"蝶型": "蝶形", "3D": "立體", "4D": "立體"}
+# 貨號第4碼（款式碼）兜底：規格一/品名判不到款式時才用這個補
+# 例：B0041→1→平面、B0042→2→立體（郡昱呼吸口罩系列規格一完全沒寫立體/平面字樣，只能靠這個分辨）
+DIGIT_STYLE = {"1": "平面", "2": "立體"}
+# 這些「款式」本身不代表平面/立體（同名下兩種版型都有可能），判到時還要用貨號碼補上平面/立體
+STYLE_AMBIGUOUS = {"呼吸", "鈔票", "全彩", "活性碳", "不脫妝"}
 # 角色 / 聯名系列（規格一開頭 token 命中才當角色）
 ROLE_KW = ["庫洛米", "酷洛米", "大耳狗", "美樂蒂", "布丁狗", "玉桂狗", "雙子星", "帕恰狗",
            "人魚漢頓", "korilakkuma", "拉拉熊", "柴語錄", "角落生物", "大甲媽",
@@ -148,14 +152,28 @@ def load_aliases():
         log("警告：找不到蝦皮獲利計算表，略過別名")
         return {}
     wb = openpyxl.load_workbook(SHOPEE_XLSX, read_only=True, data_only=True)
-    ws = wb["📦 商品列表"] if "📦 商品列表" in wb.sheetnames else wb[wb.sheetnames[0]]
     alias = {}
-    for row in ws.iter_rows(min_row=4, values_only=True):
-        if len(row) < 3 or not row[1] or not row[2]:
-            continue
-        sku, name = str(row[1]).strip(), str(row[2]).strip()
-        if sku and name and sku not in alias:
-            alias[sku] = name
+
+    def scan(ws):
+        n = 0
+        for row in ws.iter_rows(min_row=4, values_only=True):
+            if len(row) < 3 or not row[1] or not row[2]:
+                continue
+            sku, name = str(row[1]).strip(), str(row[2]).strip()
+            if sku and name and sku not in alias:
+                alias[sku] = name
+                n += 1
+        return n
+
+    main = wb["📦 商品列表"] if "📦 商品列表" in wb.sheetnames else wb[wb.sheetnames[0]]
+    n_main = scan(main)
+    if n_main == 0:
+        # 「商品列表」的商品名稱欄有時是公式格，data_only 讀不到快取值（整欄變空）；
+        # 各分類分頁（📦 A保健食品/📦 B醫療口罩…）是唯讀連動但存的是字面值，退回去掃那些。
+        log("警告：📦 商品列表 商品名稱欄讀到空值（可能是公式沒快取），改掃各分類分頁")
+        for name in wb.sheetnames:
+            if name.startswith("📦 ") and name != "📦 商品列表":
+                scan(wb[name])
     wb.close()
     return alias
 
@@ -221,15 +239,39 @@ def variant_name(g1, brand, role, alias_name, sku):
     return (v[:18] or sku)
 
 
+def digit_style(sku):
+    """貨號第4碼款式碼兜底：B0041→'1'→平面、B0042→'2'→立體"""
+    m = re.match(r"^B\d{3}(\d)", sku)
+    return DIGIT_STYLE.get(m.group(1), "") if m else ""
+
+
+_COUNT_RE = re.compile(r"([0-9０-９]+)\s*入")
+
+
 # ---------- 口罩：組三層（品牌 > 對象+款式+角色 > 顏色）----------
 def build_mask_tree(rows, alias, bmap):
     brands = {}   # brand -> { linekey -> {parts, items} }
     for sku, sysname, g1, g2, avail in rows:
         al = alias.get(sku, "")
         brand = mask_brand(sku, [g1, sysname, al], bmap)
-        # 對象/款式 只從規格一＋蝦皮品名（不碰 sysname SEO）
+        # 對象/款式 只從規格一＋蝦皮品名（不碰 sysname SEO）；規格一判不到款式才靠貨號補
         target = _pick_kw([g1, al], TARGET_KW, TARGET_NORM) or "成人"
         style = _pick_kw([g1, al], STYLE_KW, STYLE_NORM)
+        if style in ("一級", "二級"):
+            # 厚/薄常寫在括號裡跟「一級/二級」不相鄰（如「一級醫療口罩(厚)」），
+            # STYLE_KW 的「一級薄/一級厚」複合詞比對不到，要另外抓再拼起來
+            for t in (g1, al):
+                m = re.search(r"[(（](厚|薄)[)）]", t or "")
+                if m:
+                    style = style + m.group(1)
+                    break
+        ds = digit_style(sku)
+        if not style:
+            style = ds
+        elif ds and style in STYLE_AMBIGUOUS and ds not in style:
+            # 這些款式本身不代表平面/立體（呼吸/鈔票/全彩/活性碳/不脫妝都有兩種版型），
+            # 規格一沒寫清楚時用貨號碼補上去，例：「呼吸」→「平面呼吸」
+            style = ds + style
         role = role_of(g1) or role_of(al)
         lk = (brand, target, style, role)
         d = brands.setdefault(brand, {}).setdefault(lk, {"items": []})
@@ -250,14 +292,24 @@ def build_mask_tree(rows, alias, bmap):
             if style:
                 parts.append(style)
             name = " ".join(dict.fromkeys(parts))
-            variants = []
-            seen = set()
+            # 先算出每個變體的基本名 + 入數（若有），碰撞時優先用入數區分，
+            # 而不是直接貼看不懂的貨號尾碼（同色不同入數是真的差異，不該被清掉）
+            raw = []
             for sku, sysname, g1, g2, avail, al in items:
                 v = variant_name(g1, brand, role, al, sku)
-                if v in seen:      # 同名變體（不同貨號）加註尾碼
-                    v = f"{v}·{sku[-3:]}"
-                seen.add(v)
-                variants.append({"s": sku, "g": v, "v": avail})
+                cm = _COUNT_RE.search(g1 or al or "")
+                raw.append((sku, v, (cm.group(1) + "入") if cm else "", avail))
+            base_ct = {}
+            for _, v, _, _ in raw:
+                base_ct[v] = base_ct.get(v, 0) + 1
+            variants = []
+            seen = set()
+            for sku, v, cnt, avail in raw:
+                nm = f"{v} {cnt}" if base_ct[v] > 1 and cnt else v
+                if nm in seen:      # 入數也一樣才真的退回貨號尾碼
+                    nm = f"{nm}·{sku[-3:]}"
+                seen.add(nm)
+                variants.append({"s": sku, "g": nm, "v": avail})
             line_objs.append({"n": name, "i": variants})
         line_objs.sort(key=lambda l: (-sum(1 for x in l["i"] if x["v"] > 0), l["n"]))
         cat = category(next(iter(lines.values()))["items"][0][0])
@@ -306,8 +358,10 @@ def build_other(rows, alias):
     out = []
     for sysname in order:
         items = groups[sysname]
-        entry = {"t": "series", "n": series_label(sysname), "c": category(items[0]["s"]),
-                 "i": items}
+        # n 保留原始系統商品名給搜尋用（別再清乾淨——之前清乾淨過的 d 曾把「悠斯晶」這種
+        # 品牌詞整個切掉，搜品牌名反而搜不到自己的商品）；d 才是清過的顯示用短名。
+        entry = {"t": "series", "n": sysname, "d": series_label(sysname),
+                 "c": category(items[0]["s"]), "i": items}
         ali = " ".join(sorted(sa[sysname]))[:300]
         if ali:
             entry["x"] = ali
@@ -370,7 +424,7 @@ def main():
     config_json = {
         "endpoint": cfg.get("endpoint", ""),
         "token": cfg.get("token", ""),
-        "persons": cfg.get("persons", ["小賴", "瓊如", "柔柔", "阿霞"]),
+        "persons": cfg.get("persons", ["瓊如", "柔柔", "阿霞", "怡虹", "品萱"]),
     }
     now = datetime.datetime.now()
     build_info = {"stock": inv_date, "built": f"{now:%m/%d %H:%M}"}

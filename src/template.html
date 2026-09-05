@@ -288,11 +288,14 @@ for(const s of CATALOG){
     }
   } else {
     const gk = 'S' + SEP0 + s.n;
-    const grp = {kind:'series', brand:'', name:s.n, cat:s.c||'', items:[],
+    const disp = s.d || s.n;
+    // extra/blob 用「原始系統商品名」搜尋（別用清過的短名——清的時候常把品牌詞切掉，
+    // 例如「悠斯晶」，會害搜品牌名反而搜不到自己的商品）；name/line 顯示用清過的短名。
+    const grp = {kind:'series', brand:'', name:disp, cat:s.c||'', items:[],
       extra:(s.n+' '+(s.x||'')).toLowerCase()};
     GROUPS.set(gk, grp);
     for(const it of s.i){
-      const o = {sku:it.s, name:it.g, brand:'', line:s.n, cat:s.c||'', avail:it.v, gk,
+      const o = {sku:it.s, name:it.g, brand:'', line:disp, cat:s.c||'', avail:it.v, gk,
         vg:(it.g+' '+it.s).toLowerCase(),
         blob:(s.n+' '+it.g+' '+it.s).toLowerCase()};
       grp.items.push(o); ITEMS.push(o);
