@@ -305,6 +305,22 @@ def build_mask_tree(rows, alias, bmap):
             # 這些款式本身不代表平面/立體（呼吸/鈔票/全彩/活性碳/不脫妝都有兩種版型），
             # 規格一沒寫清楚時用貨號碼補上去，例：「呼吸」→「平面呼吸」
             style = ds + style
+        if sku.startswith("B008"):
+            # 水舞六分類：1 平面、2 立體、3 魚口。既有品名/貨號衝突仍保留
+            # 明確的規格判斷；缺少對象或版型時才按完整貨號補齊。
+            match = re.fullmatch(r"B008([123])(XXS|S|L)\d{3}[A-Z]?", sku)
+            if match:
+                if not _pick_kw([g1, al], TARGET_KW, TARGET_NORM):
+                    target = {"L": "成人", "S": "兒童", "XXS": "幼幼"}[match[2]]
+                style = style or {"1": "平面", "2": "立體", "3": "魚口／KF94"}[match[1]]
+            if style in ("KF94", "魚口"):
+                style = "魚口／KF94"
+            # 2026-09-08 線上獲利表已改為 B0082L005~011，但庫存匯出仍是舊碼。
+            # 必須同時核對系統商品名與規格二，不把同碼 KF94 名稱套到貓掌純色款。
+            cat_colors = {"緬因棕", "布偶貓粉", "英短毛藍", "埃及藍貓", "波斯白", "沙特灰", "黑貓黑"}
+            if sysname == "水舞 成人 貓掌口罩 30入" and g2 in cat_colors:
+                target, style = "成人", "立體"
+                al = "水舞成人," + g2
         # 2026-09-05 使用者定案：子系列只分「對象＋款式」（成人平面/兒童立體…），
         # 不要再依角色(大耳狗/庫洛米/KT…)細分——角色字樣還是會留在變體文字裡，
         # 只是不再拿來分卡片，不然像水舞一個品牌會裂成十幾張卡片。
@@ -353,6 +369,10 @@ def build_mask_tree(rows, alias, bmap):
                 variants.append({"s": sku, "g": nm, "v": avail})
             line_objs.append({"n": name, "i": variants})
         line_objs.sort(key=lambda l: (-sum(1 for x in l["i"] if x["v"] > 0), l["n"]))
+        if brand == "水舞":
+            water_order = ["水舞 成人 平面", "水舞 兒童 平面", "水舞 成人 立體",
+                           "水舞 兒童 立體", "水舞 成人 魚口／KF94", "水舞 幼幼 魚口／KF94"]
+            line_objs.sort(key=lambda line: water_order.index(line["n"]) if line["n"] in water_order else len(water_order))
         cat = category(next(iter(lines.values()))["items"][0][0])
         # x：這個品牌底下曾出現過的其他品牌字樣（如「安心罩護」是「昌明」的別名）。
         # 顯示文字已經把這些字樣清掉了，但還是要留著給搜尋用，不然打「安心罩護」會搜不到。
