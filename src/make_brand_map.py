@@ -22,7 +22,7 @@ OUT = os.path.abspath(os.path.expanduser(
 
 # 門市會叫貨的口罩品牌關鍵字（順序＝優先序，長/獨特的放前面）
 BRANDS = [
-    "安心罩護", "鼻恩恩", "幸福物語", "吉伊卡哇", "健康天使", "愛貝恩", "舒膚康", "挺立舒",
+    "守護天使", "安心罩護", "鼻恩恩", "幸福物語", "吉伊卡哇", "健康天使", "愛貝恩", "舒膚康", "挺立舒",
     "郡昱", "興安", "昌明", "匠心", "中衛", "聚泰", "德冠", "凱上", "凱馺", "億宏", "上好",
     "星業", "佑合", "佑和", "水舞", "華淨", "艾爾絲", "明基", "盛籐", "天心", "新寵兒",
     "睿昱", "摩戴舒", "活力安", "艾可兒", "丞威", "沐慷", "康丞", "索菲亞", "萊潔", "月池",
@@ -60,6 +60,12 @@ OVERRIDES = {
     "B044": "幸福物語",
     "B050": "迪士尼",
     "B001": "BNN",
+}
+
+# 只出現在網翼系統商品名、蝦皮品名沒有的別名（掃描掃不到，手動補進 aliases）
+# key = 3 碼公司碼前綴
+EXTRA_ALIASES = {
+    "B009": ["守護天使"],   # 昌明的滿版平面/立體款，網翼 SEO 名叫「守護天使」
 }
 
 
@@ -100,7 +106,7 @@ def main():
     for code, c in sorted(by3.items()):
         top = OVERRIDES.get(code) or c.most_common(1)[0][0]
         codes[code] = top
-        known = sorted(set(k for k in c if k in BRANDS) | {top})
+        known = sorted(set(k for k in c if k in BRANDS) | {top} | set(EXTRA_ALIASES.get(code, ())))
         if len(known) > 1:
             aliases[code] = known
         n = c.get(top, 0) if code in OVERRIDES else c.most_common(1)[0][1]

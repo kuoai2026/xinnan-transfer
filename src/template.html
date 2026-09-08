@@ -53,6 +53,8 @@
     margin-bottom:12px;overflow:hidden}
   .brand>.bh{display:flex;align-items:center;gap:9px;padding:13px 14px;width:100%;text-align:left}
   .brand>.bh .bn{font-size:16px;font-weight:800}
+  .brand>.bh .bn .balias{margin-left:6px;font-size:12px;font-weight:600;color:var(--dim)}
+  .brand>.bh .bn .balias::before{content:"別名 "}
   .brand>.bh .bcat{font-size:11px;color:var(--dimmer)}
   .brand>.bh .bcnt{flex:1;text-align:right;font-size:12px;color:var(--dim);white-space:nowrap}
   .brand>.bh .caret{color:var(--dim);transition:.15s;font-size:13px}
@@ -276,7 +278,7 @@ for(const s of CATALOG){
     // x：這個品牌底下曾出現過的其他品牌字樣（如「安心罩護」是「昌明」的別名）。
     // 顯示文字已經清掉這些字樣了，但要留在搜尋用的字串裡，不然打別名搜不到。
     const bx = (s.x || '').toLowerCase();
-    BRANDS.set(bk, {cat:s.c||'', gks:[]});
+    BRANDS.set(bk, {cat:s.c||'', gks:[], alias:(s.x||'').trim()});
     for(const ln of s.lines){
       const gk = bk + SEP0 + ln.n;
       const grp = {kind:'line', brand:bk, name:ln.n, cat:s.c||'', items:[],
@@ -417,9 +419,10 @@ function renderHits(hits){
     if(!b){ html += groups.map(([gk,its])=>groupCard(gk,its)).join(''); continue; }
     const total = groups.reduce((s,x)=>s+x[1].length,0);
     const collapsed = openBrand.has(b);
+    const alias = (BRANDS.get(b)||{}).alias || '';
     html += `<div class="brand${collapsed?'':' open'}" data-b="${esc(b)}">
       <button class="bh" data-btoggle>
-        <span class="bn">${esc(b)}</span>
+        <span class="bn">${esc(b)}${alias?`<span class="balias">${esc(alias.replace(/\s+/g,'／'))}</span>`:''}</span>
         <span class="bcat">${esc(GROUPS.get(groups[0][0]).cat)}</span>
         <span class="bcnt">${groups.length} 系列 · ${total} 項</span>
         <span class="caret">▶</span>
