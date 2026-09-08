@@ -188,7 +188,8 @@ def load_brand_map():
     with open(BRAND_MAP, encoding="utf-8") as f:
         d = json.load(f)
     return {"codes": d.get("codes", {}), "aliases": d.get("aliases", {}),
-            "keywords": d.get("keywords", [])}
+            "keywords": d.get("keywords", []),
+            "sublabel_split": d.get("sublabel_split", [])}
 
 
 # ---------- 口罩：品牌 ----------
@@ -264,6 +265,18 @@ def digit_style(sku):
     return DIGIT_STYLE.get(m.group(1), "") if m else ""
 
 
+def sub_label(texts, aliases, brand):
+    """同一個公司碼底下若有多個子品牌字樣（例：昌明的「安心罩護」3D 與「守護天使」滿版
+    是不同商品線），回傳這個品項屬於哪一個子品牌，好拿來分子系列。沒有就回 ''（＝就是
+    代表品牌本身）。規格一沒寫時 sysname 開頭的【】品牌括號是可靠的，所以這裡連 sysname
+    一起看（只比對已知的別名字串，不是關鍵字亂猜，安全）。"""
+    cands = [a for a in aliases if a and a != brand]
+    for a in cands:                       # 依 brand_map aliases 的順序當優先序
+        if any(a in (t or "") for t in texts):
+            return a
+    return ""
+
+
 _COUNT_RE = re.compile(r"([0-9０-９]+)\s*入")
 
 
@@ -295,18 +308,24 @@ def build_mask_tree(rows, alias, bmap):
         # 2026-09-05 使用者定案：子系列只分「對象＋款式」（成人平面/兒童立體…），
         # 不要再依角色(大耳狗/庫洛米/KT…)細分——角色字樣還是會留在變體文字裡，
         # 只是不再拿來分卡片，不然像水舞一個品牌會裂成十幾張卡片。
-        lk = (brand, target, style)
         strip_names = bmap["aliases"].get(sku[:4], [brand])
         brand_aliases.setdefault(brand, set()).update(strip_names)
+        # 同公司碼有多個「代表不同商品線」的子品牌時（例：昌明的安心罩護3D vs 守護天使滿版），
+        # 用子品牌再分子系列。只對 sublabel_split 白名單裡的公司碼做——其他品牌（水舞/盛籐…）
+        # 使用者要求只分款式，別名字樣留在變體文字就好，不要拿來拆卡片。
+        label = ""
+        if sku[:4] in bmap.get("sublabel_split", []):
+            label = sub_label([g1, al, sysname], strip_names, brand)
+        lk = (brand, label, target, style)
         d = brands.setdefault(brand, {}).setdefault(lk, {"items": []})
         d["items"].append((sku, sysname, g1, g2, avail, al, strip_names))
 
     out = []
     for brand, lines in brands.items():
         line_objs = []
-        for (b, target, style), d in lines.items():
+        for (b, label, target, style), d in lines.items():
             items = d["items"]
-            parts = [brand]
+            parts = [label or brand]
             if target and target != "成人":
                 parts.append(target)
             elif target == "成人" and len(lines) > 1:

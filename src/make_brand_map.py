@@ -68,6 +68,17 @@ EXTRA_ALIASES = {
     "B009": ["守護天使"],   # 昌明的滿版平面/立體款，網翼 SEO 名叫「守護天使」
 }
 
+# aliases 內的排序＝子系列分類時的比對優先序（前面的先中）。
+# 未列出的碼用預設排序。例：B009 底下「安心罩護」比「守護天使」更專屬，要先比。
+ALIAS_PRIORITY = {
+    "B009": ["安心罩護", "守護天使", "昌明"],
+}
+
+# 這些公司碼底下的別名代表「不同商品線」，要拿來再拆子系列
+# （昌明：安心罩護3D／守護天使滿版）。其他有別名的碼（水舞/盛籐/BNN…）
+# 使用者只要分款式，別名不拆卡片，所以不列進來。
+SUBLABEL_SPLIT = ["B009"]
+
 
 def brand_of(name):
     for b in BRANDS:
@@ -106,9 +117,10 @@ def main():
     for code, c in sorted(by3.items()):
         top = OVERRIDES.get(code) or c.most_common(1)[0][0]
         codes[code] = top
-        known = sorted(set(k for k in c if k in BRANDS) | {top} | set(EXTRA_ALIASES.get(code, ())))
+        known = set(k for k in c if k in BRANDS) | {top} | set(EXTRA_ALIASES.get(code, ()))
         if len(known) > 1:
-            aliases[code] = known
+            pri = ALIAS_PRIORITY.get(code, [])
+            aliases[code] = [a for a in pri if a in known] + sorted(known - set(pri))
         n = c.get(top, 0) if code in OVERRIDES else c.most_common(1)[0][1]
         total = sum(c.values())
         if code not in OVERRIDES and (n / total < 0.8 or total < 2):
@@ -119,6 +131,7 @@ def main():
                  "aliases 是同公司碼底下蝦皮品名實際出現過的其他品牌字樣，變體名清雜訊時要一併清掉。"
                  "keywords 是比對品名的兜底清單。",
         "codes": codes,
+        "sublabel_split": SUBLABEL_SPLIT,
         "aliases": aliases,
         "keywords": BRANDS,
         "_待人工複查": review,
