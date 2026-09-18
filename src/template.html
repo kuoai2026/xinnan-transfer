@@ -67,6 +67,8 @@
   .series.nested{background:var(--bg);border-color:var(--bg2);margin-bottom:7px}
   .series>.sh{display:flex;align-items:center;gap:10px;padding:11px 13px;width:100%;text-align:left}
   .series>.sh .name{flex:1;font-size:14px;font-weight:600;line-height:1.35}
+  .series>.sh .name .stag{margin-left:6px;padding:1px 7px;border-radius:999px;font-size:11px;
+    font-weight:700;color:var(--accent);background:rgba(56,189,248,.14)}
   .series.nested>.sh .name{font-size:13px;font-weight:600}
   .series>.sh .cat{font-size:11px;color:var(--dimmer)}
   .series>.sh .cnt{font-size:12px;color:var(--dim);white-space:nowrap}
@@ -294,15 +296,18 @@ for(const s of CATALOG){
   } else {
     const gk = 'S' + SEP0 + s.n;
     const disp = s.d || s.n;
+    const tag = (s.tag || '').trim();
     // extra/blob 用「原始系統商品名」搜尋（別用清過的短名——清的時候常把品牌詞切掉，
     // 例如「悠斯晶」，會害搜品牌名反而搜不到自己的商品）；name/line 顯示用清過的短名。
-    const grp = {kind:'series', brand:'', name:disp, cat:s.c||'', items:[],
-      extra:(s.n+' '+(s.x||'')).toLowerCase()};
+    // tag：manual_tags.json 手動補的關鍵字（門市習慣用語跟系統品名兜不起來時用），
+    // 卡片標題會直接顯示，也要折進搜尋字串。
+    const grp = {kind:'series', brand:'', name:disp, cat:s.c||'', items:[], tag,
+      extra:(s.n+' '+(s.x||'')+' '+tag).toLowerCase()};
     GROUPS.set(gk, grp);
     for(const it of s.i){
       const o = {sku:it.s, name:it.g, brand:'', line:disp, cat:s.c||'', avail:it.v, gk,
         vg:(it.g+' '+it.s).toLowerCase(),
-        blob:(s.n+' '+it.g+' '+it.s).toLowerCase()};
+        blob:(s.n+' '+it.g+' '+it.s+' '+tag).toLowerCase()};
       grp.items.push(o); ITEMS.push(o);
     }
   }
@@ -443,7 +448,7 @@ function groupCard(gk, its, nested){
     ? (grp.name.slice(grp.brand.length).trim() || grp.name) : grp.name;
   return `<div class="series${open?' open':''}${nested?' nested':''}${generic?' folded':''}" data-g="${esc(gk)}">
     <button class="sh" data-toggle>
-      <span class="name">${esc(disp)}${!nested?`<div class="cat">${esc(grp.cat)}</div>`:''}</span>
+      <span class="name">${esc(disp)}${grp.tag?`<span class="stag">${esc(grp.tag)}</span>`:''}${!nested?`<div class="cat">${esc(grp.cat)}</div>`:''}</span>
       <span class="cnt">${full} 色</span>
       <span class="caret">▶</span>
     </button>

@@ -25,6 +25,7 @@ SHOPEE_XLSX = os.path.join(HOME, "我的雲端硬碟/蝦皮獲利計算表/蝦�
 TEMPLATE = os.path.join(HERE, "template.html")
 CONFIG = os.path.join(HERE, "config.json")
 BRAND_MAP = os.path.join(HERE, "brand_map.json")
+MANUAL_TAGS = os.path.join(HERE, "manual_tags.json")
 
 CAT_BY_PREFIX = [
     ("PW", "充電線材"), ("PG", "益智玩具"), ("BD", "入浴球"), ("NO", "入浴球"),
@@ -179,6 +180,16 @@ def load_aliases():
                 scan(wb[name])
     wb.close()
     return alias
+
+
+def load_manual_tags():
+    """貨號 → 手動補的搜尋關鍵字/卡片標籤（門市習慣用語跟系統品名兜不起來時，
+    不想動整套分類邏輯，直接在這個小檔案裡點名補一個字就好）。"""
+    if not os.path.exists(MANUAL_TAGS):
+        return {}
+    with open(MANUAL_TAGS, encoding="utf-8") as f:
+        d = json.load(f)
+    return {k: v for k, v in d.items() if not k.startswith("_")}
 
 
 def load_brand_map():
@@ -409,8 +420,9 @@ def series_label(sysname):
     return label
 
 
-def build_other(rows, alias):
-    groups, order, sa = {}, [], {}
+def build_other(rows, alias, manual_tags=None):
+    manual_tags = manual_tags or {}
+    groups, order, sa, tags = {}, [], {}, {}
     for sku, sysname, g1, g2, avail in rows:
         disp = g1 or g2 or sysname
         if g1 and g2 and g2 not in ("-", ""):
@@ -418,10 +430,13 @@ def build_other(rows, alias):
         if sysname not in groups:
             groups[sysname] = []
             sa[sysname] = set()
+            tags[sysname] = set()
             order.append(sysname)
         groups[sysname].append({"s": sku, "g": disp, "v": avail})
         if alias.get(sku):
             sa[sysname].add(alias[sku])
+        if manual_tags.get(sku):
+            tags[sysname].add(manual_tags[sku])
     out = []
     for sysname in order:
         items = groups[sysname]
@@ -432,6 +447,9 @@ def build_other(rows, alias):
         ali = " ".join(sorted(sa[sysname]))[:300]
         if ali:
             entry["x"] = ali
+        # tag：手動補的關鍵字（manual_tags.json），卡片標題會直接顯示，也會進搜尋
+        if tags[sysname]:
+            entry["tag"] = " ".join(sorted(tags[sysname]))
         out.append(entry)
     return out
 
@@ -442,7 +460,8 @@ def load_and_build():
     log(f"庫存來源：{os.path.basename(inv_path)}")
     alias = load_aliases()
     bmap = load_brand_map()
-    log(f"別名 {len(alias)} 筆、品牌碼 {len(bmap['codes'])} 條")
+    manual_tags = load_manual_tags()
+    log(f"別名 {len(alias)} 筆、品牌碼 {len(bmap['codes'])} 條、手動標籤 {len(manual_tags)} 筆")
 
     wb = openpyxl.load_workbook(inv_path, read_only=True, data_only=True)
     ws = wb["庫存盤點"] if "庫存盤點" in wb.sheetnames else wb[wb.sheetnames[0]]
@@ -476,7 +495,7 @@ def load_and_build():
         n += 1
     wb.close()
 
-    tree = build_mask_tree(mask_rows, alias, bmap) + build_other(other_rows, alias)
+    tree = build_mask_tree(mask_rows, alias, bmap) + build_other(other_rows, alias, manual_tags)
     log(f"catalog：口罩 {len(mask_rows)} 品項 / 其他 {len(other_rows)} 品項 / "
         f"{sum(1 for x in tree if x['t']=='brand')} 品牌 + "
         f"{sum(1 for x in tree if x['t']=='series')} 系列")
