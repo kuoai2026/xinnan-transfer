@@ -292,7 +292,8 @@ _COUNT_RE = re.compile(r"([0-9０-９]+)\s*入")
 
 
 # ---------- 口罩：組三層（品牌 > 對象+款式+角色 > 顏色）----------
-def build_mask_tree(rows, alias, bmap):
+def build_mask_tree(rows, alias, bmap, manual_tags=None):
+    manual_tags = manual_tags or {}
     brands = {}   # brand -> { linekey -> {parts, items} }
     brand_aliases = {}   # brand -> set(同公司碼底下出現過的其他品牌字樣，供搜尋用)
     for sku, sysname, g1, g2, avail in rows:
@@ -377,6 +378,8 @@ def build_mask_tree(rows, alias, bmap):
                 if nm in seen:      # 入數也一樣才真的退回貨號尾碼
                     nm = f"{nm}·{sku[-3:]}"
                 seen.add(nm)
+                if manual_tags.get(sku):      # 手動關鍵字直接加在變體名前面（可見也可搜）
+                    nm = f"{manual_tags[sku]} {nm}"
                 variants.append({"s": sku, "g": nm, "v": avail})
             line_objs.append({"n": name, "i": variants})
         line_objs.sort(key=lambda l: (-sum(1 for x in l["i"] if x["v"] > 0), l["n"]))
@@ -495,7 +498,7 @@ def load_and_build():
         n += 1
     wb.close()
 
-    tree = build_mask_tree(mask_rows, alias, bmap) + build_other(other_rows, alias, manual_tags)
+    tree = build_mask_tree(mask_rows, alias, bmap, manual_tags) + build_other(other_rows, alias, manual_tags)
     log(f"catalog：口罩 {len(mask_rows)} 品項 / 其他 {len(other_rows)} 品項 / "
         f"{sum(1 for x in tree if x['t']=='brand')} 品牌 + "
         f"{sum(1 for x in tree if x['t']=='series')} 系列")
