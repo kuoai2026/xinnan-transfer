@@ -26,6 +26,7 @@ TEMPLATE = os.path.join(HERE, "template.html")
 CONFIG = os.path.join(HERE, "config.json")
 BRAND_MAP = os.path.join(HERE, "brand_map.json")
 MANUAL_TAGS = os.path.join(HERE, "manual_tags.json")
+TITLE_OVERRIDES = os.path.join(HERE, "title_overrides.json")
 
 CAT_BY_PREFIX = [
     ("PW", "充電線材"), ("PG", "益智玩具"), ("BD", "入浴球"), ("NO", "入浴球"),
@@ -180,6 +181,16 @@ def load_aliases():
                 scan(wb[name])
     wb.close()
     return alias
+
+
+def load_title_overrides():
+    """貨號 → 卡片標題覆寫（只改畫面顯示的系列名，搜尋用的原始品名不動）。
+    同一張系列卡裡任一貨號有設定就生效。"""
+    if not os.path.exists(TITLE_OVERRIDES):
+        return {}
+    with open(TITLE_OVERRIDES, encoding="utf-8") as f:
+        d = json.load(f)
+    return {k: v for k, v in d.items() if not k.startswith("_")}
 
 
 def load_manual_tags():
@@ -423,8 +434,9 @@ def series_label(sysname):
     return label
 
 
-def build_other(rows, alias, manual_tags=None):
+def build_other(rows, alias, manual_tags=None, title_overrides=None):
     manual_tags = manual_tags or {}
+    title_overrides = title_overrides or {}
     groups, order, sa, tags = {}, [], {}, {}
     for sku, sysname, g1, g2, avail in rows:
         disp = g1 or g2 or sysname
@@ -445,7 +457,9 @@ def build_other(rows, alias, manual_tags=None):
         items = groups[sysname]
         # n 保留原始系統商品名給搜尋用（別再清乾淨——之前清乾淨過的 d 曾把「悠斯晶」這種
         # 品牌詞整個切掉，搜品牌名反而搜不到自己的商品）；d 才是清過的顯示用短名。
-        entry = {"t": "series", "n": sysname, "d": series_label(sysname),
+        title = next((title_overrides[i["s"]] for i in items if i["s"] in title_overrides),
+                     series_label(sysname))
+        entry = {"t": "series", "n": sysname, "d": title,
                  "c": category(items[0]["s"]), "i": items}
         ali = " ".join(sorted(sa[sysname]))[:300]
         if ali:
@@ -464,6 +478,7 @@ def load_and_build():
     alias = load_aliases()
     bmap = load_brand_map()
     manual_tags = load_manual_tags()
+    title_overrides = load_title_overrides()
     log(f"別名 {len(alias)} 筆、品牌碼 {len(bmap['codes'])} 條、手動標籤 {len(manual_tags)} 筆")
 
     wb = openpyxl.load_workbook(inv_path, read_only=True, data_only=True)
@@ -498,7 +513,7 @@ def load_and_build():
         n += 1
     wb.close()
 
-    tree = build_mask_tree(mask_rows, alias, bmap, manual_tags) + build_other(other_rows, alias, manual_tags)
+    tree = build_mask_tree(mask_rows, alias, bmap, manual_tags) + build_other(other_rows, alias, manual_tags, title_overrides)
     log(f"catalog：口罩 {len(mask_rows)} 品項 / 其他 {len(other_rows)} 品項 / "
         f"{sum(1 for x in tree if x['t']=='brand')} 品牌 + "
         f"{sum(1 for x in tree if x['t']=='series')} 系列")
