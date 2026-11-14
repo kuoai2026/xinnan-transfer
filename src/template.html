@@ -288,8 +288,9 @@ for(const s of CATALOG){
       GROUPS.set(gk, grp); BRANDS.get(bk).gks.push(gk);
       for(const it of ln.i){
         const o = {sku:it.s, name:it.g, brand:bk, line:ln.n, cat:s.c||'', avail:it.v, gk,
-          vg:(it.g+' '+it.s).toLowerCase(),
-          blob:(bk+' '+bx+' '+ln.n+' '+it.g+' '+it.s).toLowerCase()};
+          ph:it.p||'',
+          vg:(it.g+' '+it.s+' '+(it.p||'')).toLowerCase(),
+          blob:(bk+' '+bx+' '+ln.n+' '+it.g+' '+it.s+' '+(it.p||'')).toLowerCase()};
         grp.items.push(o); ITEMS.push(o);
       }
     }
@@ -306,8 +307,9 @@ for(const s of CATALOG){
     GROUPS.set(gk, grp);
     for(const it of s.i){
       const o = {sku:it.s, name:it.g, brand:'', line:disp, cat:s.c||'', avail:it.v, gk,
-        vg:(it.g+' '+it.s).toLowerCase(),
-        blob:(s.n+' '+it.g+' '+it.s+' '+tag).toLowerCase()};
+        ph:it.p||'',
+        vg:(it.g+' '+it.s+' '+(it.p||'')).toLowerCase(),
+        blob:(s.n+' '+it.g+' '+it.s+' '+(it.p||'')+' '+tag).toLowerCase()};
       grp.items.push(o); ITEMS.push(o);
     }
   }
@@ -470,7 +472,7 @@ function itemRow(it){
       <div class="nm">${esc(it.name)}</div>
       <div class="meta">
         <span class="stock ${sc}">可售 ${it.avail}</span>
-        <span class="sku">${esc(it.sku)}</span>
+        <span class="sku">${esc(it.sku)}</span>${it.ph?`<span class="sku">藥局 ${esc(it.ph)}</span>`:''}
       </div>
     </div>
     <div class="stepper">

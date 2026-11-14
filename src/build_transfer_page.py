@@ -183,6 +183,29 @@ def load_aliases():
     return alias
 
 
+PHARMACY_CSV_GLOB = os.path.join(HOME, "我的雲端硬碟/蝦皮獲利計算表/倉庫貨號對照表-*.csv")
+# 對照表原檔貨號打錯時在這裡更正（不動原檔）：錯的 → 對的
+PHARMACY_SKU_FIXES = {"B0022XS01": "B0022XS015"}
+
+
+def load_pharmacy_codes():
+    """倉庫貨號 → 藥局商品編號。讀日期最新的 倉庫貨號對照表-*.csv。"""
+    import csv
+    files = sorted(glob.glob(PHARMACY_CSV_GLOB))
+    if not files:
+        log("警告：找不到 倉庫貨號對照表-*.csv，藥局編號搜尋停用")
+        return {}
+    log(f"藥局對照表：{os.path.basename(files[-1])}")
+    out = {}
+    with open(files[-1], encoding="utf-8-sig", newline="") as f:
+        for r in csv.DictReader(f):
+            sku = (r.get("倉庫貨號") or "").strip()
+            code = (r.get("藥局商品編號") or "").strip()
+            if sku and code:
+                out[PHARMACY_SKU_FIXES.get(sku, sku)] = code
+    return out
+
+
 def load_title_overrides():
     """貨號 → 卡片標題覆寫（只改畫面顯示的系列名，搜尋用的原始品名不動）。
     同一張系列卡裡任一貨號有設定就生效。"""
@@ -478,6 +501,7 @@ def load_and_build():
     alias = load_aliases()
     bmap = load_brand_map()
     manual_tags = load_manual_tags()
+    pharmacy = load_pharmacy_codes()
     title_overrides = load_title_overrides()
     log(f"別名 {len(alias)} 筆、品牌碼 {len(bmap['codes'])} 條、手動標籤 {len(manual_tags)} 筆")
 
@@ -514,6 +538,17 @@ def load_and_build():
     wb.close()
 
     tree = build_mask_tree(mask_rows, alias, bmap, manual_tags) + build_other(other_rows, alias, manual_tags, title_overrides)
+    # 藥局編號：貼到每個品項的 p 欄位（搜尋＋顯示用）
+    used = set()
+    for e in tree:
+        its = [i for ln in e["lines"] for i in ln["i"]] if e["t"] == "brand" else e["i"]
+        for i in its:
+            if i["s"] in pharmacy:
+                i["p"] = pharmacy[i["s"]]
+                used.add(i["s"])
+    for sku in sorted(set(pharmacy) - used):
+        log(f"警告：藥局對照表的貨號 {sku}（{pharmacy[sku]}）在頁面目錄找不到")
+    log(f"藥局編號對上 {len(used)}/{len(pharmacy)} 筆")
     log(f"catalog：口罩 {len(mask_rows)} 品項 / 其他 {len(other_rows)} 品項 / "
         f"{sum(1 for x in tree if x['t']=='brand')} 品牌 + "
         f"{sum(1 for x in tree if x['t']=='series')} 系列")
