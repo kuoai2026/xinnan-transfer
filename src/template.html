@@ -662,6 +662,14 @@ function buildSummary(lines){
   const parts = [...groups.entries()].map(([k,v])=>k+'：'+v.join('、'));
   return parts.concat(solo).join('\n');
 }
+/* 送出時把藥局商品編號接在備註後面（只動送出內容，不改門市輸入框） */
+const PH_BY_SKU = new Map(ITEMS.filter(o=>o.ph).map(o=>[o.sku,o.ph]));
+function withPharmacy(l){
+  const ph = PH_BY_SKU.get(l.sku);
+  const n = (l.note||'').trim();
+  if(!ph) return n;
+  return n ? n+' ｜ 藥局 '+ph : '藥局 '+ph;
+}
 let sending=false;
 $('#submitBtn').onclick=async ()=>{
   if(sending) return;
@@ -676,7 +684,7 @@ $('#submitBtn').onclick=async ()=>{
     summary: buildSummary(lines),
     items: lines.filter(l=>!l.manual).map(l=>({sku:l.sku,name:l.name,
       series:(l.line?l.line+' '+l.name:l.name),
-      qty:l.qty,custom:l.custom,note:l.note||''})),
+      qty:l.qty,custom:l.custom,note:withPharmacy(l)})),
     manualItems: lines.filter(l=>l.manual).map(l=>({name:l.name,qty:l.qty,unit:l.unit||'',
       custom:l.custom,note:l.note||''}))
   };
