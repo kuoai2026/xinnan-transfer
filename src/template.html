@@ -668,7 +668,7 @@ function withPharmacy(l){
   const ph = PH_BY_SKU.get(l.sku);
   const n = (l.note||'').trim();
   if(!ph) return n;
-  return n ? n+' ｜ 藥局 '+ph : '藥局 '+ph;
+  return n ? n+' ｜ '+ph : ph;
 }
 let sending=false;
 $('#submitBtn').onclick=async ()=>{
