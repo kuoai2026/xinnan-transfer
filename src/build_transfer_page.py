@@ -203,6 +203,16 @@ def load_pharmacy_codes():
             code = (r.get("藥局商品編號") or "").strip()
             if sku and code:
                 out[PHARMACY_SKU_FIXES.get(sku, sku)] = code
+    # 從調貨單明細備註學到的補充（learn_pharmacy_codes.py 產生）；csv 有的以 csv 為準
+    extra_path = os.path.join(HERE, "pharmacy_codes_extra.json")
+    if os.path.exists(extra_path):
+        with open(extra_path, encoding="utf-8") as f:
+            extra = json.load(f)
+        n = 0
+        for sku, code in extra.items():
+            if sku not in out:
+                out[sku] = code; n += 1
+        log(f"藥局編號補充檔：加入 {n} 筆")
     return out
 
 
